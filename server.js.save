@@ -1,0 +1,28 @@
+  ws.on("message", (data) => {
+    console.log("Message from listener:", data.toString());
+  });
+  ws.on("message", (data) => {
+    console.log("Message from listener:", data.toString());
+  });
+pwd
+
+
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
+const PORT = process.env.PORT || 3000;
+
+// Serve static files from /public
+app.use(express.static(path.join(__dirname, "public")));
+
+// WebSocket (we’ll use this shortly)
+wss.on("connection", (ws) => {
+  console.log("Listener connected");
+  ws.on("close", () => console.log("Listener disconnected"));
+});
+
+server.listen(PORT, () => {
+  console.log(`TourGuide Bubble running on http://localhost:${PORT}`);
+});
+

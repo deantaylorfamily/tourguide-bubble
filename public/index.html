@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Join Tour</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; background:#fff; }
+    h1 { font-size: 44px; margin: 10px 0; }
+    #status { font-size: 18px; color:#444; margin: 10px 0 16px; }
+    #msg { font-size: 24px; margin: 12px 0 18px; min-height: 32px; }
+    button { width: 100%; padding: 18px; font-size: 22px; margin: 10px 0; }
+    .tip { color:#666; font-size:14px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Join Tour</h1>
+  <div id="status">Connecting…</div>
+  <div id="msg"></div>
+
+  <button id="tap">Tap to Listen</button>
+
+  <div class="tip">Tip: iPhone requires one tap to allow audio.</div>
+
+<script>
+  const statusEl = document.getElementById("status");
+  const msgEl = document.getElementById("msg");
+  const tapBtn = document.getElementById("tap");
+
+  let ws;
+  let audioCtx;
+  let unlocked = false;
+
+  function connect() {
+    ws = new WebSocket(`ws://${location.host}`);
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: "role", role: "listener" }));
+      statusEl.textContent = "Connected. Tap to Listen.";
+    };
+
+    ws.onmessage = async (ev) => {
+      // Text messages
+      if (typeof ev.data === "string") {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === "status") statusEl.textContent = msg.msg;
+          if (msg.type === "text") msgEl.textContent = msg.text;
+        } catch {}
+        return;
+      }
+
+      // PCM audio frames (Float32Array) from server
+      if (!unlocked || !audioCtx) return;
+
+      const buf = ev.data; // ArrayBuffer
+      const floats = new Float32Array(buf);
+
+      // Build an AudioBuffer and play immediately
+      const audioBuffer = audioCtx.createBuffer(1, floats.length, audioCtx.sampleRate);
+      audioBuffer.copyToChannel(floats, 0);
+
+      const src = audioCtx.createBufferSource();
+      src.buffer = audioBuffer;
+      src.connect(audioCtx.destination);
+      src.start();
+    };
+
+    ws.onclose = () => {
+      statusEl.textContent = "Disconnected. Refresh to reconnect.";
+      setTimeout(connect, 1000);
+    };
+  }
+
+  tapBtn.onclick = async () => {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    await audioCtx.resume();
+    unlocked = true;
+    tapBtn.textContent = "Listening…";
+    tapBtn.disabled = true;
+
+    // tiny beep so you know audio is unlocked
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    g.gain.value = 0.05;
+    o.frequency.value = 880;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start();
+    setTimeout(()=>{ o.stop(); }, 120);
+  };
+
+  connect();
+</script>
+</body>
+</html>

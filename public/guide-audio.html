@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guide Audio</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; }
+    h1 { font-size: 40px; margin: 10px 0; }
+    #status { margin: 8px 0 14px; color: #333; }
+    button { width: 100%; padding: 18px; font-size: 22px; margin: 12px 0; }
+    .tip { color:#666; font-size:14px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Guide Audio</h1>
+  <div id="status">Not started</div>
+
+  <button id="start">Start Mic + Broadcast Audio</button>
+  <button id="stop" disabled>Stop</button>
+
+  <div class="tip">Phones must tap “Tap to Listen” first.</div>
+
+<script>
+  const statusEl = document.getElementById("status");
+  const startBtn = document.getElementById("start");
+  const stopBtn  = document.getElementById("stop");
+
+  let ws;
+  let audioCtx;
+  let micStream;
+  let source;
+  let processor;
+  let running = false;
+
+  function setStatus(s){ statusEl.textContent = s; }
+
+  startBtn.onclick = async () => {
+    startBtn.disabled = true;
+    setStatus("Requesting microphone…");
+
+    ws = new WebSocket(`ws://${location.host}`);
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = async () => {
+      ws.send(JSON.stringify({ type: "role", role: "guide" }));
+
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (e) {
+        setStatus("Mic permission denied.");
+        startBtn.disabled = false;
+        return;
+      }
+
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      await audioCtx.resume();
+
+      source = audioCtx.createMediaStreamSource(micStream);
+
+      // ScriptProcessorNode is old but works everywhere (including iPhone listeners on the other side)
+      processor = audioCtxcreateScriptProcessor(1024, 1, 1);
+
+      processor.onaudioprocess = (e) => {
+        if (!running) return;
+        if (ws.readyState !== 1) return;
+
+        const input = e.inputBuffer.getChannelData(0); // Float32Array
+        // Copy into a new Float32Array so it doesn't get reused
+        const copy = new Float32Array(input.length);
+        copy.set(input);
+
+        ws.send(copy.buffer); // send PCM floats
+      };
+
+      source.connect(processor);
+      processor.connect(audioCtx.destination); // required in some browsers
+
+      running = true;
+      stopBtn.disabled = false;
+      setStatus("Mic is ON. Broadcasting PCM…");
+    };
+
+    ws.onclose = () => setStatus("Disconnected.");
+  };
+
+  stopBtn.onclick = async () => {
+    running = false;
+    try { processor && processor.disconnect(); } catch {}
+    try { source && source.disconnect(); } catch {}
+    try { micStream && micStream.getTracks().forEach(t => t.stop()); } catch {}
+    try { audioCtx && audioCtx.close(); } catch {}
+    try { ws && ws.close(); } catch {}
+
+    stopBtn.disabled = true;
+    startBtn.disabled = false;
+    setStatus("Stopped.");
+  };
+</script>
+</body>
+</html>
